@@ -6,6 +6,7 @@ on:
     branches:
       - master
       - develop
+      - feature/**
     tags:
       - 'v*.*.*'
 
@@ -14,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: index.docker.io/metacall/core
+  IMAGE_NAME: mryash/core
 
 jobs:
   build:
@@ -28,6 +29,11 @@ jobs:
           - linux/arm64
           - linux/arm/v6
           - linux/arm/v7
+        service:
+          - deps
+          - dev
+          - runtime
+          - cli
     steps:
       - name: Checkout the code
         uses: actions/checkout@v4
@@ -61,7 +67,7 @@ jobs:
       #     password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
       - name: Build MetaCall Docker Images
-        run: bash ./docker-compose.sh platform
+        run: bash ./docker-compose.sh ${{ matrix.service }} platform
 
       - name: Export Digest
         run: |
