@@ -67,6 +67,7 @@ jobs:
           docker buildx build \
             --platform ${{ matrix.platform }} \
             --file ./tools/${{ matrix.service }}/Dockerfile \
+            --build-arg METACALL_BASE_IMAGE=debian:bookworm \
             --tag ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }} \
             --push \
             .
