@@ -1,11 +1,14 @@
 name: Build and Push Docker Image for Multiple Architectures
 
 on:
+  # To enable manual triggering of this workflow
   workflow_dispatch:
+
+  # Trigger for pushes to master and tags
   push:
     branches:
       - master
-      - develop
+      - develop # TODO: Remove this
       - feature/**
     tags:
       - 'v*.*.*'
@@ -29,105 +32,101 @@ jobs:
           - linux/arm64
           - linux/arm/v6
           - linux/arm/v7
-        service:
-          - deps
-          - dev
-          - runtime
-          - cli
     steps:
       - name: Checkout the code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Define Platform and Service
-        id: define-platform-service
+      - name: Define Platform
         run: |
           PLATFORM=${{ matrix.platform }}
-          PLATFORM_SAFE=${PLATFORM//\//-} # Replace slashes with dashes
-          SERVICE=${{ matrix.service }}
           echo "METACALL_PLATFORM=${PLATFORM}" >> $GITHUB_ENV
-          echo "METACALL_PLATFORM_SAFE=${PLATFORM_SAFE}" >> $GITHUB_ENV
-          echo "METACALL_SERVICE=${SERVICE}" >> $GITHUB_ENV
+          echo "METACALL_PLATFORM_PAIR=${PLATFORM//\//-}" >> $GITHUB_ENV
+      
+      - name: Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}  # Add your Docker Hub username secret
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}  # Add your Docker Hub access token secret
-
-      - name: Docker Metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
       - name: Build MetaCall Docker Images
-        run: |
-          docker buildx build \
-            --platform ${{ matrix.platform }} \
-            --file ./tools/${{ matrix.service }}/Dockerfile \
-            --build-arg METACALL_BASE_IMAGE=debian:bookworm \
-            --tag ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }} \
-            --push \
-            .
+        run: bash ./docker-compose.sh platform
 
-      - name: Export Digest
-        run: |
-          mkdir -p /tmp/digests
-          digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }})
-          touch "/tmp/digests/${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }}_${digest#sha256:}"
+      # # TODO: Build with alpine and provide multiple tags (debian & alpine) once all tests pass
+      # - name: Push MetaCall Docker Image to DockerHub
+      #   run: |
+      #     if [[ "${{ github.ref == 'refs/heads/master' }}" = true ]]; then
+      #       bash ./docker-compose.sh push
+      #     elif [[ "${{ contains(github.ref, 'refs/tags/') }}" = true ]]; then
+      #       bash ./docker-compose.sh version
+      #     else
+      #       echo "Failed to push the docker images"
+      #       exit 1
+      #     fi
 
-      - name: Upload Digest
-        uses: actions/upload-artifact@v4
-        with:
-          name: digests-${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }}
-          path: /tmp/digests/*
-          retention-days: 1
+      # - name: Export Digest
+      #   run: |
+      #     mkdir -p /tmp/digests
+      #     digest="${{ steps.build.outputs.digest }}"
+      #     touch "/tmp/digests/${digest#sha256:}"          
+      
+      # - name: Upload Digest
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: digests-${{ env.METACALL_PLATFORM_PAIR }}
+      #     path: /tmp/digests/*
+      #     if-no-files-found: error
+      #     retention-days: 1
 
-  merge:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all digests
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digests-*
-          path: /tmp/digests
-          merge-multiple: true
+      - name: Logout from DockerHub
+        run: docker logout
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Docker Metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-
-      - name: Create Manifest List (without pushing)
-        run: |
-          platforms=("linux-amd64" "linux-arm64" "linux-arm-v6" "linux-arm-v7")
-          manifests=""
-          for platform in "${platforms[@]}"; do
-            digest=$(cat /tmp/digests/${platform}_*)
-            manifests="${manifests} ${IMAGE_NAME}@${digest}"
-          done
-          echo "Would create manifest list with: ${manifests}"
-          echo "Would tag as: ${IMAGE_NAME}:${{ steps.meta.outputs.version }} and ${IMAGE_NAME}:latest"
-
-      - name: Simulate Image Inspection
-        run: |
-          echo "Would inspect: ${IMAGE_NAME}:${{ steps.meta.outputs.version }}"
-          echo "Would inspect: ${IMAGE_NAME}:latest"
-
-      # Uncomment to log out from DockerHub after the process
-      # - name: Logout from DockerHub
-      #   if: always()
-      #   run: docker logout
+  # merge:
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - build
+  #   steps:
+  #     - name: Download Digests
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: /tmp/digests
+  #         pattern: digests-*
+  #         merge-multiple: true
+      
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+      
+  #     - name: Docker Metadata
+  #       id: meta
+  #       uses: docker/metadata-action@v5
+  #       with:
+  #         images: ${{ env.IMAGE_NAME }}
+      
+  #     - name: Login to DockerHub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKER_HUB_USERNAME }}
+  #         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+      
+  #     - name: Create manifest list and push
+  #       working-directory: /tmp/digests
+  #       run: |
+  #         docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+  #           $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+      
+  #     - name: Inspect image
+  #       run: |
+  #         docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
