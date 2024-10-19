@@ -47,6 +47,7 @@ jobs:
           PLATFORM_SAFE=${PLATFORM//\//-} # Replace slashes with dashes
           SERVICE=${{ matrix.service }}
           echo "METACALL_PLATFORM=${PLATFORM}" >> $GITHUB_ENV
+          echo "METACALL_PLATFORM_SAFE=${PLATFORM_SAFE}" >> $GITHUB_ENV
           echo "METACALL_SERVICE=${SERVICE}" >> $GITHUB_ENV
 
       - name: Docker Metadata
@@ -66,22 +67,23 @@ jobs:
           docker buildx build \
             --platform ${{ matrix.platform }} \
             --file ./Dockerfile.${{ matrix.service }} \
-            --tag ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ matrix.platform }} \
+            --tag ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }} \
             --push \
             .
 
       - name: Export Digest
         run: |
           mkdir -p /tmp/digests
-          digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ matrix.platform }})
-          touch "/tmp/digests/${{ matrix.service }}-${{ matrix.platform }}_${digest#sha256:}"
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.IMAGE_NAME }}:${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }})
+          touch "/tmp/digests/${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }}_${digest#sha256:}"
 
       - name: Upload Digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.service }}-${{ matrix.platform }}
+          name: digests-${{ matrix.service }}-${{ env.METACALL_PLATFORM_SAFE }}
           path: /tmp/digests/*
           retention-days: 1
+
           
   merge:
     needs: build
