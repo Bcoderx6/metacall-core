@@ -50,6 +50,12 @@ jobs:
           echo "METACALL_PLATFORM_SAFE=${PLATFORM_SAFE}" >> $GITHUB_ENV
           echo "METACALL_SERVICE=${SERVICE}" >> $GITHUB_ENV
 
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}  # Add your Docker Hub username secret
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}  # Add your Docker Hub access token secret
+
       - name: Docker Metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -85,7 +91,6 @@ jobs:
           path: /tmp/digests/*
           retention-days: 1
 
-          
   merge:
     needs: build
     runs-on: ubuntu-latest
@@ -122,6 +127,7 @@ jobs:
           echo "Would inspect: ${IMAGE_NAME}:${{ steps.meta.outputs.version }}"
           echo "Would inspect: ${IMAGE_NAME}:latest"
 
+      # Uncomment to log out from DockerHub after the process
       # - name: Logout from DockerHub
       #   if: always()
       #   run: docker logout
