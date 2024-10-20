@@ -32,23 +32,34 @@ jobs:
           - linux/arm64
           - linux/arm/v6
           - linux/arm/v7
+        image-type:
+          - cli
+          - dev
+          - deps
+          - runtime
     steps:
       - name: Checkout the code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Define Platform
+      - name: Define Platform and Image Type
         run: |
           PLATFORM=${{ matrix.platform }}
+          IMAGE_TYPE=${{ matrix.image-type }}
           echo "METACALL_PLATFORM=${PLATFORM}" >> $GITHUB_ENV
           echo "METACALL_PLATFORM_PAIR=${PLATFORM//\//-}" >> $GITHUB_ENV
+          echo "METACALL_IMAGE_TYPE=${IMAGE_TYPE}" >> $GITHUB_ENV
       
       - name: Docker Metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ matrix.image-type }}-${{ env.METACALL_PLATFORM_PAIR }}
+            type=ref,event=branch
+            type=ref,event=tag
       
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -62,8 +73,18 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: Build MetaCall Docker Images
-        run: bash ./docker-compose.sh platform
+      - name: Build and Push MetaCall Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./tools/${{ matrix.image-type }}/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Logout from DockerHub
+        run: docker logout
 
       # # TODO: Build with alpine and provide multiple tags (debian & alpine) once all tests pass
       # - name: Push MetaCall Docker Image to DockerHub
@@ -91,8 +112,8 @@ jobs:
       #     if-no-files-found: error
       #     retention-days: 1
 
-      - name: Logout from DockerHub
-        run: docker logout
+      #- name: Logout from DockerHub
+       # run: docker logout
 
   # merge:
   #   runs-on: ubuntu-latest
